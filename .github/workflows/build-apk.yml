@@ -23,7 +23,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '11'
+          java-version: '17'
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -80,9 +80,10 @@ jobs:
 
       - name: Install Cordova and project dependencies
         run: |
-          npm install --global cordova@11.0.0
+          npm install --global cordova@12.0.0
           cd "$PROJECT_DIR"
           npm install
+          npm install cordova-android@12.1.1 --save-exact
           npm run check
 
       - name: Install PeerJS dependencies without symlinks
@@ -105,7 +106,28 @@ jobs:
       - name: Add Android platform
         run: |
           cd "$PROJECT_DIR"
-          cordova platform add android@10.1.2
+          cordova platform rm android || true
+          cordova platform add android@12.1.1
+
+      - name: Patch nodejs-mobile-cordova hook
+        shell: bash
+        run: |
+          cd "$PROJECT_DIR"
+          HOOK_FILE="plugins/nodejs-mobile-cordova/install/hooks/android/after-prepare-patch-npm-packages.js"
+          if [ -f "$HOOK_FILE" ]; then
+            echo "Patching $HOOK_FILE to prevent undefined path crash..."
+            # Replace the problematic new Api() instantiation with a safe fallback
+            node -e '
+              const fs = require("fs");
+              const file = process.argv[1];
+              let content = fs.readFileSync(file, "utf8");
+              content = content.replace(
+                /var\s+androidPlatformApi\s*=\s*new\s+Api\([^)]*\);/,
+                "var androidPlatformApi; try { androidPlatformApi = new Api(); } catch(e) { androidPlatformApi = new Api(\"android\", require(\"path\").resolve(\"platforms/android\")); }"
+              );
+              fs.writeFileSync(file, content, "utf8");
+            ' "$HOOK_FILE"
+          fi
 
       - name: Verify runtime dependencies
         shell: bash
@@ -125,6 +147,7 @@ jobs:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
         run: |
+          set -euo pipefail
           cd "$PROJECT_DIR"
           cordova build android --debug --verbose
 
