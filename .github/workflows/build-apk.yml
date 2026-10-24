@@ -121,14 +121,21 @@ jobs:
           find www/nodejs-project/node_modules -type l -print
 
       - name: Build debug APK
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
         run: |
           cd "$PROJECT_DIR"
           cordova build android --debug --verbose
+
+      - name: Locate Generated APK
+        run: |
+          find "$PROJECT_DIR/platforms/android" -name "*.apk" -type f
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Peer-Server-debug-APK
-          path: ${{ env.PROJECT_DIR }}/platforms/android/app/build/outputs/apk/debug/*.apk
+          path: ${{ env.PROJECT_DIR }}/platforms/android/**/*.apk
           if-no-files-found: error
           retention-days: 14
