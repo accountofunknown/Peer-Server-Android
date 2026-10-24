@@ -12,8 +12,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -28,36 +28,27 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '18'
 
       - name: Verify Android SDK
         shell: bash
         run: |
           set -euo pipefail
-          echo "ANDROID_HOME=${ANDROID_HOME:-not-set}"
-          if [ -z "${ANDROID_HOME:-}" ]; then
-            echo "ANDROID_HOME is not set on this runner."
-            exit 1
-          fi
-          if [ ! -d "$ANDROID_HOME" ]; then
-            echo "Android SDK directory not found: $ANDROID_HOME"
-            exit 1
-          fi
-          echo "sdk.dir=$ANDROID_HOME"
-          ls -la "$ANDROID_HOME"
+          test -d "${ANDROID_HOME:?Android SDK is not available}"
+          echo "Android SDK: $ANDROID_HOME"
+          java -version
+          node --version
+          npm --version
 
       - name: Extract project ZIP
         shell: bash
         run: |
           set -euo pipefail
-
           ZIP_FILE="Peer-Server-Android.zip"
-
-          if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERROR: $ZIP_FILE not found in repository root."
-            echo "Upload the ZIP file to the root of the repository."
+          test -f "$ZIP_FILE" || {
+            echo "ERROR: Upload $ZIP_FILE to the repository root."
             exit 1
-          fi
+          }
 
           mkdir -p extracted
           unzip -o "$ZIP_FILE" -d extracted
@@ -66,28 +57,27 @@ jobs:
             PROJECT_DIR="extracted"
           else
             PROJECT_DIR=""
-
             while IFS= read -r file; do
               dir="$(dirname "$file")"
               if [ -f "$dir/config.xml" ] && [ -f "$dir/www/index.html" ]; then
                 PROJECT_DIR="$dir"
                 break
               fi
-            done < <(find extracted -name package.json \
-              -not -path '*/node_modules/*' -print)
-
-            if [ -z "$PROJECT_DIR" ]; then
-              echo "ERROR: Cordova project files were not found in the ZIP."
-              find extracted -maxdepth 5 -type f | head -100
-              exit 1
-            fi
+            done < <(find extracted -name package.json -not -path '*/node_modules/*' -print)
           fi
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Found project in: $PROJECT_DIR"
+          test -n "$PROJECT_DIR" || {
+            echo "ERROR: Could not locate Cordova project inside ZIP."
+            find extracted -maxdepth 5 -type f | head -100
+            exit 1
+          }
 
-      - name: Install project dependencies
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project directory: $PROJECT_DIR"
+
+      - name: Install Cordova CLI and project dependencies
         run: |
+          npm install --global cordova@12.0.0
           cd "$PROJECT_DIR"
           npm install
           npm run check
@@ -97,18 +87,20 @@ jobs:
           cd "$PROJECT_DIR"
           npm install --prefix www/nodejs-project --omit=dev
 
-      - name: Prepare Android project
+      - name: Add pinned Android platform
         run: |
           cd "$PROJECT_DIR"
-          npx cordova plugin add nodejs-mobile-cordova
-          npx cordova platform add android@latest
+          cordova platform add android@13.0.0
+
+      - name: Verify Cordova plugins
+        run: |
+          cd "$PROJECT_DIR"
+          cordova plugin ls
 
       - name: Build debug APK
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
         run: |
           cd "$PROJECT_DIR"
-          npx cordova build android --debug
+          cordova build android --debug --verbose
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
