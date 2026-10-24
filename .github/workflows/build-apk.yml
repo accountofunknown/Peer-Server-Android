@@ -23,7 +23,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '11'
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -80,7 +80,7 @@ jobs:
 
       - name: Install Cordova and project dependencies
         run: |
-          npm install --global cordova@12.0.0
+          npm install --global cordova@11.0.0
           cd "$PROJECT_DIR"
           npm install
           npm run check
@@ -105,7 +105,7 @@ jobs:
       - name: Add Android platform
         run: |
           cd "$PROJECT_DIR"
-          cordova platform add android@12.0.1
+          cordova platform add android@10.1.2
 
       - name: Verify runtime dependencies
         shell: bash
