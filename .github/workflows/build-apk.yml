@@ -1,111 +1,130 @@
 name: Build Peer Server APK
+ 
+on: workflow\_dispatch: push: branches: - main - master
+ 
+permissions: contents: read
+ 
+jobs: build: runs-on: ubuntu-22.04 timeout-minutes: 60
+ 
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
 
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
+  - name: Set up Java
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: '17'
 
-permissions:
-  contents: read
+  - name: Set up Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: '18'
 
-jobs:
-  build:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 60
+  - name: Verify build tools
+    run: |
+      java -version
+      node --version
+      npm --version
+      test -d "${ANDROID_HOME:?Android SDK is not available}"
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+  - name: Extract project ZIP
+    shell: bash
+    run: |
+      set -euo pipefail
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+      ZIP_FILE="Peer-Server-Android.zip"
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
+      if [ ! -f "$ZIP_FILE" ]; then
+        echo "ERROR: Upload $ZIP_FILE to the repository root."
+        exit 1
+      fi
 
-      - name: Verify Android SDK
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -d "${ANDROID_HOME:?Android SDK is not available}"
-          echo "Android SDK: $ANDROID_HOME"
-          java -version
-          node --version
-          npm --version
+      mkdir -p extracted
+      unzip -o "$ZIP_FILE" -d extracted
 
-      - name: Extract project ZIP
-        shell: bash
-        run: |
-          set -euo pipefail
-          ZIP_FILE="Peer-Server-Android.zip"
-          test -f "$ZIP_FILE" || {
-            echo "ERROR: Upload $ZIP_FILE to the repository root."
-            exit 1
-          }
+      if [ -f extracted/package.json ] && [ -f extracted/config.xml ]; then
+        PROJECT_DIR="extracted"
+      else
+        PROJECT_DIR=""
 
-          mkdir -p extracted
-          unzip -o "$ZIP_FILE" -d extracted
-
-          if [ -f extracted/package.json ] && [ -f extracted/config.xml ]; then
-            PROJECT_DIR="extracted"
-          else
-            PROJECT_DIR=""
-            while IFS= read -r file; do
-              dir="$(dirname "$file")"
-              if [ -f "$dir/config.xml" ] && [ -f "$dir/www/index.html" ]; then
-                PROJECT_DIR="$dir"
-                break
-              fi
-            done < <(find extracted -name package.json -not -path '*/node_modules/*' -print)
+        while IFS= read -r file; do
+          dir="$(dirname "$file")"
+          if [ -f "$dir/config.xml" ] && [ -f "$dir/www/index.html" ]; then
+            PROJECT_DIR="$dir"
+            break
           fi
+        done < <(
+          find extracted -name package.json \
+            -not -path '*/node_modules/*' -print
+        )
+      fi
 
-          test -n "$PROJECT_DIR" || {
-            echo "ERROR: Could not locate Cordova project inside ZIP."
-            find extracted -maxdepth 5 -type f | head -100
-            exit 1
-          }
+      if [ -z "$PROJECT_DIR" ]; then
+        echo "ERROR: Cordova project not found in ZIP."
+        find extracted -maxdepth 5 -type f | head -100
+        exit 1
+      fi
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Project directory: $PROJECT_DIR"
+      echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+      echo "Using project directory: $PROJECT_DIR"
 
-      - name: Install Cordova CLI and project dependencies
-        run: |
-          npm install --global cordova@12.0.0
-          cd "$PROJECT_DIR"
-          npm install
-          npm run check
+  - name: Install Cordova and project dependencies
+    run: |
+      npm install --global cordova@12.0.0
+      cd "$PROJECT_DIR"
+      npm install
+      npm run check
 
-      - name: Install PeerJS runtime dependencies
-        run: |
-          cd "$PROJECT_DIR"
-          npm install --prefix www/nodejs-project --omit=dev
+  - name: Install PeerJS dependencies without symlinks
+    shell: bash
+    run: |
+      set -euo pipefail
+      cd "$PROJECT_DIR"
 
-      - name: Add pinned Android platform
-        run: |
-          cd "$PROJECT_DIR"
-          cordova platform add android@13.0.0
+      rm -rf www/nodejs-project/node_modules
 
-      - name: Verify Cordova plugins
-        run: |
-          cd "$PROJECT_DIR"
-          cordova plugin ls
+      npm install \
+        --prefix www/nodejs-project \
+        --omit=dev \
+        --no-bin-links
 
-      - name: Build debug APK
-        run: |
-          cd "$PROJECT_DIR"
-          cordova build android --debug --verbose
+      if [ -d www/nodejs-project/node_modules/.bin ]; then
+        rm -rf www/nodejs-project/node_modules/.bin
+      fi
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Peer-Server-debug-APK
-          path: ${{ env.PROJECT_DIR }}/platforms/android/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 14
+  - name: Add Android platform
+    run: |
+      cd "$PROJECT_DIR"
+      cordova platform add android@13.0.0
+
+  - name: Add Node.js Mobile plugin
+    run: |
+      cd "$PROJECT_DIR"
+      cordova plugin add nodejs-mobile-cordova
+
+  - name: Verify runtime dependencies
+    shell: bash
+    run: |
+      set -euo pipefail
+      cd "$PROJECT_DIR"
+
+      if [ -d www/nodejs-project/node_modules/.bin ]; then
+        echo "ERROR: .bin directory still exists."
+        exit 1
+      fi
+
+      find www/nodejs-project/node_modules -type l -print
+
+  - name: Build debug APK
+    run: |
+      cd "$PROJECT_DIR"
+      cordova build android --debug --verbose
+
+  - name: Upload APK
+    uses: actions/upload-artifact@v4
+    with:
+      name: Peer-Server-debug-APK
+      path: ${{ env.PROJECT_DIR }}/platforms/android/app/build/outputs/apk/debug/*.apk
+      if-no-files-found: error
+      retention-days: 14
