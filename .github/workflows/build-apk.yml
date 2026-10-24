@@ -42,7 +42,6 @@ jobs:
         with:
           node-version: '20'
 
-      # Fixed: use v4 + only packages that still exist
       - name: Install Android SDK
         uses: android-actions/setup-android@v4
         with:
@@ -60,8 +59,16 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
         run: |
           npm install
-          npm install --prefix www/nodejs-project --omit=dev
           npx cordova plugin add nodejs-mobile-cordova
+
+          # Install the embedded Node.js project
+          npm install --prefix www/nodejs-project --omit=dev
+
+          # CRITICAL: remove npm symlinks that break Cordova's fs.cp
+          # (this is the cause of ERR_FS_CP_EINVAL)
+          rm -rf www/nodejs-project/node_modules/.bin || true
+          find www -type l -delete 2>/dev/null || true
+
           npx cordova platform add android@latest
 
       - name: Build debug APK
