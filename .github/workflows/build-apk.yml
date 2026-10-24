@@ -105,12 +105,7 @@ jobs:
       - name: Add Android platform
         run: |
           cd "$PROJECT_DIR"
-          cordova platform add android@13.0.0
-
-      - name: Add Node.js Mobile plugin
-        run: |
-          cd "$PROJECT_DIR"
-          cordova plugin add nodejs-mobile-cordova
+          cordova platform add android@12.0.1
 
       - name: Verify runtime dependencies
         shell: bash
