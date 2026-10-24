@@ -1,6 +1,6 @@
 name: Build Peer Server APK
  
-on: workflow\_dispatch: push: branches: - main - master
+on: workflow_dispatch: push: branches: - main - master
  
 permissions: contents: read
  
