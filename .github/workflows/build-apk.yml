@@ -1,7 +1,7 @@
 name: Build Peer Server APK from ZIP
 
 on:
-  workflow_dispatch:          # manual run
+  workflow_dispatch:
   push:
     branches: [main, master]
     paths:
@@ -42,13 +42,19 @@ jobs:
         with:
           node-version: '20'
 
+      # Fixed: use v4 + only packages that still exist
       - name: Install Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
 
-      - name: Install Android NDK
-        run: sdkmanager "ndk;27.2.12479018"
+      - name: Install Android NDK + Build-Tools
+        run: |
+          sdkmanager "ndk;27.2.12479018"
+          sdkmanager "build-tools;35.0.0"
+          sdkmanager "platforms;android-35"
 
-      - name: Install dependencies & prepare Cordova
+      - name: Install Cordova dependencies
         working-directory: project
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
