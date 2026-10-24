@@ -83,7 +83,7 @@ jobs:
           npm install --global cordova@12.0.0
           cd "$PROJECT_DIR"
           npm install
-          npm install cordova-android@12.1.1 --save-exact
+          npm install cordova-android@12.0.1 --save-exact
           npm run check
 
       - name: Install PeerJS dependencies without symlinks
@@ -107,16 +107,16 @@ jobs:
         run: |
           cd "$PROJECT_DIR"
           cordova platform rm android || true
-          cordova platform add android@12.1.1
+          cordova platform add android@12.0.1
 
       - name: Patch nodejs-mobile-cordova hook
         shell: bash
         run: |
+          set -euo pipefail
           cd "$PROJECT_DIR"
           HOOK_FILE="plugins/nodejs-mobile-cordova/install/hooks/android/after-prepare-patch-npm-packages.js"
           if [ -f "$HOOK_FILE" ]; then
             echo "Patching $HOOK_FILE to prevent undefined path crash..."
-            # Replace the problematic new Api() instantiation with a safe fallback
             node -e '
               const fs = require("fs");
               const file = process.argv[1];
