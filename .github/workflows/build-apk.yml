@@ -1,0 +1,98 @@
+name: Build Peer Server APK from ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'Peer-Server-Android.zip'
+      - '.github/workflows/build-apk.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract project from ZIP
+        run: |
+          set -e
+          if [ ! -f Peer-Server-Android.zip ]; then
+            echo "ERROR: Peer-Server-Android.zip not found in repository root"
+            ls -la
+            exit 1
+          fi
+          mkdir -p project
+          unzip -o Peer-Server-Android.zip -d project
+          echo "=== Extracted tree ==="
+          find project -type f | sort
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Install NDK, build-tools and platform
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;26.1.10909125"
+          sdkmanager "build-tools;34.0.0"
+          sdkmanager "platforms;android-34"
+
+      - name: Install root + Cordova plugin + platform
+        working-directory: project
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+        run: |
+          set -e
+          npm install
+          npx cordova plugin add nodejs-mobile-cordova --nofetch || npx cordova plugin add nodejs-mobile-cordova
+          # Use a known-good cordova-android version (avoid latest if it causes issues)
+          npx cordova platform add android@13.0.0
+
+      - name: Install embedded Node project (after platform)
+        working-directory: project
+        run: |
+          set -e
+          # Install after platform add so Cordova never copies node_modules during platform creation
+          npm install --prefix www/nodejs-project --omit=dev --no-bin-links
+          # Extra safety: remove any remaining symlinks
+          find www/nodejs-project -type l -delete 2>/dev/null || true
+          rm -rf www/nodejs-project/node_modules/.bin 2>/dev/null || true
+
+      - name: Build debug APK
+        working-directory: project
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+        run: |
+          set -e
+          npx cordova build android --debug --verbose
+
+      - name: Locate and upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Peer-Server-debug-APK
+          path: |
+            project/platforms/android/app/build/outputs/apk/debug/*.apk
+            project/platforms/android/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
